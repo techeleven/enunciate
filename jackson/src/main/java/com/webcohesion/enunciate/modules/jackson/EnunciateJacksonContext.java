@@ -41,6 +41,7 @@ import com.webcohesion.enunciate.modules.jackson.model.*;
 import com.webcohesion.enunciate.modules.jackson.model.adapters.AdapterType;
 import com.webcohesion.enunciate.modules.jackson.model.types.JsonType;
 import com.webcohesion.enunciate.modules.jackson.model.types.KnownJsonType;
+import com.webcohesion.enunciate.modules.jackson.model.types.SpeciallyFormattedKnownJsonType;
 import com.webcohesion.enunciate.modules.jackson.model.util.JacksonUtil;
 import com.webcohesion.enunciate.modules.jackson.model.util.MapType;
 import com.webcohesion.enunciate.util.AnnotationUtils;
@@ -61,6 +62,9 @@ import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 import java.sql.Timestamp;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author Ryan Heaton
@@ -83,8 +87,9 @@ public class EnunciateJacksonContext extends EnunciateModuleContext {
   private final String propertyNamingStrategy;
   private final boolean propertiesAlphabetical;
   private final String beanValidationGroups;
+  private final Map<String, String> jsonFormats;
 
-  public EnunciateJacksonContext(EnunciateContext context, boolean honorJaxb, boolean honorGson, KnownJsonType explicitDateTime, boolean collapseTypeHierarchy, Map<String, String> mixins, Map<String, String> examples, AccessorVisibilityChecker visibility, boolean disableExamples, boolean wrapRootValue, String propertyNamingStrategy, boolean propertiesAlphabetical, String beanValidationGroups) {
+  public EnunciateJacksonContext(EnunciateContext context, boolean honorJaxb, boolean honorGson, KnownJsonType explicitDateTime, boolean collapseTypeHierarchy, Map<String, String> mixins, Map<String, String> examples, AccessorVisibilityChecker visibility, boolean disableExamples, boolean wrapRootValue, String propertyNamingStrategy, boolean propertiesAlphabetical, String beanValidationGroups, Map<String, String> jsonFormats) {
     super(context);
     this.specifiedDateType = explicitDateTime;
     this.mixins = mixins;
@@ -93,6 +98,7 @@ public class EnunciateJacksonContext extends EnunciateModuleContext {
     this.disableExamples = disableExamples;
     this.propertyNamingStrategy = propertyNamingStrategy;
     this.propertiesAlphabetical = propertiesAlphabetical;
+    this.jsonFormats = jsonFormats;
     this.knownTypes = loadKnownTypes();
     this.typeDefinitions = new HashMap<String, TypeDefinition>();
     this.honorJaxb = honorJaxb;
@@ -180,7 +186,10 @@ public class EnunciateJacksonContext extends EnunciateModuleContext {
 
   public JsonType getKnownType(Element declaration) {
     if (declaration instanceof TypeElement) {
-      return this.knownTypes.get(((TypeElement) declaration).getQualifiedName().toString());
+      String fqn = ((TypeElement) declaration).getQualifiedName().toString();
+      JsonType knownType = this.knownTypes.get(fqn);
+      String format = this.jsonFormats.get(fqn);
+      return knownType != null && this.jsonFormats.containsKey(fqn) ? new SpeciallyFormattedKnownJsonType(knownType, format) : knownType;
     }
     return null;
   }
@@ -196,12 +205,15 @@ public class EnunciateJacksonContext extends EnunciateModuleContext {
     HashMap<String, JsonType> knownTypes = new HashMap<String, JsonType>();
 
     knownTypes.put(Boolean.class.getName(), KnownJsonType.BOOLEAN);
+    knownTypes.put(AtomicBoolean.class.getName(), KnownJsonType.BOOLEAN);
     knownTypes.put(Byte.class.getName(), KnownJsonType.WHOLE_NUMBER);
     knownTypes.put(Character.class.getName(), KnownJsonType.STRING);
     knownTypes.put(Double.class.getName(), KnownJsonType.NUMBER);
     knownTypes.put(Float.class.getName(), KnownJsonType.NUMBER);
     knownTypes.put(Integer.class.getName(), KnownJsonType.WHOLE_NUMBER);
+    knownTypes.put(AtomicInteger.class.getName(), KnownJsonType.WHOLE_NUMBER);
     knownTypes.put(Long.class.getName(), KnownJsonType.LONG_NUMBER);
+    knownTypes.put(AtomicLong.class.getName(), KnownJsonType.LONG_NUMBER);
     knownTypes.put(Short.class.getName(), KnownJsonType.WHOLE_NUMBER);
     knownTypes.put(Number.class.getName(), KnownJsonType.WHOLE_NUMBER);
     knownTypes.put(Boolean.TYPE.getName(), KnownJsonType.BOOLEAN);
@@ -639,6 +651,10 @@ public class EnunciateJacksonContext extends EnunciateModuleContext {
       return getContext().getProcessingEnvironment().getElementUtils().getTypeElement(mixin);
     }
     return null;
+  }
+  
+  public String getConfiguredTypeFormat(TypeDefinition type) {
+    return this.jsonFormats.get(type.getQualifiedName().toString());
   }
 
   public String lookupExternalExample(TypeElement element) {
